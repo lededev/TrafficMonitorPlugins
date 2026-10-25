@@ -138,6 +138,8 @@ namespace HardwareMonitor
 
     float HardwareMonitorHelper::GetSensorValue(LibreHardwareMonitor::Hardware::ISensor^ sensor, System::String^ unit)
     {
+        if (sensor == nullptr || !sensor->Value.HasValue)
+            return 0.0f;
         float value = sensor->Value.Value;
         //电压
         if (sensor->SensorType == SensorType::Voltage)
@@ -255,6 +257,240 @@ namespace HardwareMonitor
         path += "/";
         path += sensor->Name;
         return path;
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    // 显卡显存项目
+    //////////////////////////////////////////////////////////////////////////
+
+    static String^ GpuMemoryItemPrefix()
+    {
+        return gcnew String(L"__gpu_memory__/");
+    }
+
+    bool HardwareMonitorHelper::IsGpuHardware(IHardware^ hardware)
+    {
+        if (hardware == nullptr)
+            return false;
+        return hardware->HardwareType == HardwareType::GpuNvidia
+            || hardware->HardwareType == HardwareType::GpuAmd
+            || hardware->HardwareType == HardwareType::GpuIntel;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryItemIdentifier(IHardware^ hardware)
+    {
+        if (hardware == nullptr)
+            return nullptr;
+        return GpuMemoryItemPrefix() + hardware->Identifier->ToString();
+    }
+
+    bool HardwareMonitorHelper::IsGpuMemoryItemIdentifier(String^ identifier)
+    {
+        if (identifier == nullptr)
+            return false;
+        return identifier->StartsWith(GpuMemoryItemPrefix());
+    }
+
+    bool HardwareMonitorHelper::IsGpuMemoryItemIdentifier(const std::wstring& identifier)
+    {
+        const std::wstring prefix(L"__gpu_memory__/");
+        return identifier.size() >= prefix.size() && identifier.compare(0, prefix.size(), prefix) == 0;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryHardwareIdentifier(String^ identifier)
+    {
+        if (!IsGpuMemoryItemIdentifier(identifier))
+            return nullptr;
+        String^ prefix = GpuMemoryItemPrefix();
+        return identifier->Substring(prefix->Length);
+    }
+
+    static IHardware^ FindHardwareInHardware(IHardware^ hardware, String^ identifier)
+    {
+        if (hardware == nullptr || identifier == nullptr)
+            return nullptr;
+        if (hardware->Identifier->ToString()->Equals(identifier))
+            return hardware;
+        for each (IHardware ^ sub_hardware in hardware->SubHardware)
+        {
+            IHardware^ result = FindHardwareInHardware(sub_hardware, identifier);
+            if (result != nullptr)
+                return result;
+        }
+        return nullptr;
+    }
+
+    IHardware^ HardwareMonitorHelper::FindHardwareByIdentifier(String^ identifier)
+    {
+        if (identifier == nullptr)
+            return nullptr;
+        for each (IHardware ^ hardware in MonitorGlobal::Instance()->computer->Hardware)
+        {
+            IHardware^ result = FindHardwareInHardware(hardware, identifier);
+            if (result != nullptr)
+                return result;
+        }
+        return nullptr;
+    }
+
+    static ISensor^ FindMemorySensorByName(IHardware^ hardware, String^ name)
+    {
+        if (hardware == nullptr || name == nullptr)
+            return nullptr;
+        for each (ISensor ^ sensor in hardware->Sensors)
+        {
+            if ((sensor->SensorType == SensorType::Data || sensor->SensorType == SensorType::SmallData)
+                && sensor->Name->Equals(name))
+            {
+                return sensor;
+            }
+        }
+        for each (IHardware ^ sub_hardware in hardware->SubHardware)
+        {
+            ISensor^ sensor = FindMemorySensorByName(sub_hardware, name);
+            if (sensor != nullptr)
+                return sensor;
+        }
+        return nullptr;
+    }
+
+    //查找一个显卡的“已占用显存”和“总显存”传感器
+    static bool FindGpuMemorySensors(IHardware^ hardware, ISensor^% used, ISensor^% total)
+    {
+        used = nullptr;
+        total = nullptr;
+        if (hardware == nullptr)
+            return false;
+
+        //NVIDIA/AMD独立显卡
+        used = FindMemorySensorByName(hardware, "GPU Memory Used");
+        total = FindMemorySensorByName(hardware, "GPU Memory Total");
+
+        //D3D专用显存
+        if (used == nullptr || total == nullptr)
+        {
+            ISensor^ d3d_used = FindMemorySensorByName(hardware, "D3D Dedicated Memory Used");
+            ISensor^ d3d_total = FindMemorySensorByName(hardware, "D3D Dedicated Memory Total");
+            if (d3d_used != nullptr && d3d_total != nullptr)
+            {
+                used = d3d_used;
+                total = d3d_total;
+            }
+        }
+
+        //共享显存（Intel核显等）
+        if (used == nullptr || total == nullptr)
+        {
+            ISensor^ shared_used = FindMemorySensorByName(hardware, "D3D Shared Memory Used");
+            ISensor^ shared_total = FindMemorySensorByName(hardware, "D3D Shared Memory Total");
+            if (shared_used != nullptr && shared_total != nullptr)
+            {
+                used = shared_used;
+                total = shared_total;
+            }
+        }
+
+        //最后再尝试按名称匹配
+        if (used == nullptr || total == nullptr)
+        {
+            for each (ISensor ^ sensor in hardware->Sensors)
+            {
+                if ((sensor->SensorType != SensorType::Data && sensor->SensorType != SensorType::SmallData)
+                    || !sensor->Name->Contains(gcnew String(L"Memory Used")))
+                {
+                    continue;
+                }
+                String^ sensor_total_name = sensor->Name->Replace(gcnew String(L"Used"), gcnew String(L"Total"));
+                ISensor^ sensor_total = FindMemorySensorByName(hardware, sensor_total_name);
+                if (sensor_total != nullptr)
+                {
+                    used = sensor;
+                    total = sensor_total;
+                    break;
+                }
+            }
+        }
+
+        return used != nullptr && total != nullptr;
+    }
+
+    bool HardwareMonitorHelper::HasGpuMemorySensors(IHardware^ hardware)
+    {
+        ISensor^ used;
+        ISensor^ total;
+        return FindGpuMemorySensors(hardware, used, total);
+    }
+
+    bool HardwareMonitorHelper::GetGpuMemoryValues(String^ identifier, float% used_gb, float% total_gb)
+    {
+        used_gb = 0;
+        total_gb = 0;
+
+        String^ hardware_identifier = GetGpuMemoryHardwareIdentifier(identifier);
+        IHardware^ hardware = FindHardwareByIdentifier(hardware_identifier);
+        ISensor^ used;
+        ISensor^ total;
+        if (!FindGpuMemorySensors(hardware, used, total))
+            return false;
+        if (!used->Value.HasValue || !total->Value.HasValue)
+            return false;
+
+        //Data类型的数值单位为GB，SmallData类型的数值单位为MB
+        float used_value = used->Value.Value;
+        float total_value = total->Value.Value;
+        if (used->SensorType == SensorType::SmallData)
+            used_value /= 1024.0f;
+        if (total->SensorType == SensorType::SmallData)
+            total_value /= 1024.0f;
+
+        used_gb = used_value;
+        total_gb = total_value;
+        return true;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryValueText(String^ identifier, String^ unit, int decimal_place, bool show_unit, bool seperate_with_space)
+    {
+        if (String::IsNullOrEmpty(unit))
+            unit = "GB";
+
+        float used_gb;
+        float total_gb;
+        if (!GetGpuMemoryValues(identifier, used_gb, total_gb))
+            return gcnew String(L"--");
+
+        bool use_mb = unit->Equals(gcnew String(L"MB"), StringComparison::OrdinalIgnoreCase);
+        float used_value = use_mb ? used_gb * 1024.0f : used_gb;
+        float total_value = use_mb ? total_gb * 1024.0f : total_gb;
+
+        String^ format_string = String::Format("F{0}", decimal_place);
+        //总显存显示为整数（市售显卡的显存容量均为整GB）
+        String^ value_text = used_value.ToString(format_string) + "/" + total_value.ToString("F0");
+        if (show_unit)
+        {
+            if (seperate_with_space)
+                value_text += " ";
+            value_text += unit;
+        }
+        return value_text;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryDisplayName(String^ identifier)
+    {
+        String^ hardware_identifier = GetGpuMemoryHardwareIdentifier(identifier);
+        IHardware^ hardware = FindHardwareByIdentifier(hardware_identifier);
+        String^ hardware_name = hardware != nullptr ? hardware->Name : gcnew String(L"GPU");
+        String^ item_name = MonitorGlobal::Instance()->GetString(L"GpuMemoryUsageItem");
+        if (String::IsNullOrEmpty(item_name))
+            item_name = gcnew String(L"VRAM Used/Total");
+        return hardware_name + "/" + item_name;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryLabel()
+    {
+        String^ label = MonitorGlobal::Instance()->GetString(L"GpuMemoryLabel");
+        if (String::IsNullOrEmpty(label))
+            label = gcnew String(L"VRAM");
+        return label;
     }
 
     void HardwareMonitorHelper::GetDefaultMonitorItem(List<ISensor^>^ default_sensors)

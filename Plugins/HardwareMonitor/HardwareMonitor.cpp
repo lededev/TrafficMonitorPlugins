@@ -99,12 +99,67 @@ namespace HardwareMonitor
         return false;
     }
 
+    bool CHardwareMonitor::AddGpuMemoryDisplayItem(IHardware^ hardware)
+    {
+        if (!HardwareMonitorHelper::IsGpuHardware(hardware) || !HardwareMonitorHelper::HasGpuMemorySensors(hardware))
+            return false;
+        String^ identifier = HardwareMonitorHelper::GetGpuMemoryItemIdentifier(hardware);
+        if (String::IsNullOrEmpty(identifier))
+            return false;
+        return AddGpuMemoryDisplayItem(Common::StringToStdWstring(identifier));
+    }
+
+    bool CHardwareMonitor::AddGpuMemoryDisplayItem(const std::wstring& identifier)
+    {
+        if (!HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
+            return false;
+        if (IsDisplayItemExist(identifier))
+            return false;
+
+        String^ item_identifier = gcnew String(identifier.c_str());
+        String^ hardware_identifier = HardwareMonitorHelper::GetGpuMemoryHardwareIdentifier(item_identifier);
+        if (HardwareMonitorHelper::FindHardwareByIdentifier(hardware_identifier) == nullptr)
+            return false;
+
+        std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryDisplayName(item_identifier));
+        std::wstring label_text = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryLabel());
+
+        ItemInfo item_info;
+        item_info.identifyer = identifier;
+        item_info.unit = L"GB";
+        item_info.decimal_places = 1;
+        //不指定数值宽度，示例文本直接使用当前数值，使显示区域保持紧凑
+        item_info.specify_value_width = false;
+        item_info.value_width = 3;
+        item_info.show_unit = true;
+        m_settings.items_info.push_back(item_info);
+
+        m_item_names[identifier] = item_name;
+        m_items.emplace_back(identifier, item_name, label_text);
+        return true;
+    }
+
+    void CHardwareMonitor::AddGpuMemoryItemsForAllGpus()
+    {
+        Computer^ computer = MonitorGlobal::Instance()->computer;
+        for each (IHardware ^ hardware in computer->Hardware)
+        {
+            AddGpuMemoryDisplayItem(hardware);
+            for each (IHardware ^ sub_hardware in hardware->SubHardware)
+                AddGpuMemoryDisplayItem(sub_hardware);
+        }
+    }
+
     std::wstring CHardwareMonitor::GetItemName(const std::wstring& identifier)
     {
         auto iter = m_item_names.find(identifier);
         if (iter != m_item_names.end())
         {
             return iter->second;
+        }
+        else if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
+        {
+            return Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryDisplayName(gcnew String(identifier.c_str())));
         }
         else
         {
@@ -156,17 +211,30 @@ namespace HardwareMonitor
             item_info.show_notify = ini.GetBool(app_name.c_str(), L"show_notify", false);
             item_info.notify_value = ini.GetDouble(app_name.c_str(), L"notify_value");
             m_settings.items_info.push_back(item_info);
-            ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info.identifyer.c_str()));
-            if (sensor != nullptr)
+            if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(item_info.identifyer))
             {
-                std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorDisplayName(sensor));
-                std::wstring lable_text = Common::StringToStdWstring(Common::GetTranslatedString(sensor->Name));
+                //显卡显存项目不是真实的传感器
+                String^ item_identifier = gcnew String(item_info.identifyer.c_str());
+                std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryDisplayName(item_identifier));
+                std::wstring lable_text = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryLabel());
                 m_item_names[item_info.identifyer] = item_name;
                 m_items.emplace_back(item_info.identifyer, item_name, lable_text);
+            }
+            else
+            {
+                ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info.identifyer.c_str()));
+                if (sensor != nullptr)
+                {
+                    std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorDisplayName(sensor));
+                    std::wstring lable_text = Common::StringToStdWstring(Common::GetTranslatedString(sensor->Name));
+                    m_item_names[item_info.identifyer] = item_name;
+                    m_items.emplace_back(item_info.identifyer, item_name, lable_text);
+                }
             }
         }
         m_settings.hardware_info_auto_refresh = ini.GetBool(L"config", L"hardware_info_auto_refresh");
         m_settings.show_mouse_tooltip = ini.GetBool(L"config", L"show_mouse_tooltip", true);
+        m_settings.gpu_memory_item_added = ini.GetBool(L"config", L"gpu_memory_item_added", false);
 
         //如果配置文件为空，则认为是首次使用硬件监控插件，添加默认的监控项
         if (ini.IsEmpty())
@@ -185,6 +253,13 @@ namespace HardwareMonitor
                 item_info.unit = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorTypeDefaultUnit(sensor->SensorType));
                 m_settings.items_info.push_back(item_info);
             }
+        }
+
+        //首次运行此版本时，为每个显卡自动添加一个“已占用显存/总显存”项目
+        if (!m_settings.gpu_memory_item_added)
+        {
+            AddGpuMemoryItemsForAllGpus();
+            m_settings.gpu_memory_item_added = true;
         }
 
         //载入树控件的展开折叠状态
@@ -228,6 +303,7 @@ namespace HardwareMonitor
         }
         ini.WriteBool(L"config", L"hardware_info_auto_refresh", m_settings.hardware_info_auto_refresh);
         ini.WriteBool(L"config", L"show_mouse_tooltip", m_settings.show_mouse_tooltip);
+        ini.WriteBool(L"config", L"gpu_memory_item_added", m_settings.gpu_memory_item_added);
 
         //保存树控件的展开折叠状态
         std::vector<std::wstring> collapse_nodes;

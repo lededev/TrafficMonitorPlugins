@@ -39,6 +39,12 @@ namespace HardwareMonitor
         //成功返回true，否则返回false
         bool RemoveDisplayItem(int index);
 
+        //添加一个显卡显存监控项目（已占用显存/总显存）
+        bool AddGpuMemoryDisplayItem(LibreHardwareMonitor::Hardware::IHardware^ hardware);
+        bool AddGpuMemoryDisplayItem(const std::wstring& identifier);
+        //为所有支持显存监控的显卡添加显存项目
+        void AddGpuMemoryItemsForAllGpus();
+
         std::wstring GetItemName(const std::wstring& identifier);
 
         const std::wstring& GetConfigPath() const;

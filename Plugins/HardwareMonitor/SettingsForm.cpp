@@ -68,7 +68,7 @@ namespace HardwareMonitor
             if (listItem != nullptr && listItem->identifyer != nullptr)
             {
                 ItemInfo& itemInfo = CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(Common::StringToStdWstring(listItem->identifyer));
-                String^ unit = itemInfo.unit.empty() ? gcnew String(L"GB") : gcnew String(itemInfo.unit.c_str());
+                String^ unit = itemInfo.unit.empty() ? gcnew String(L"G") : gcnew String(itemInfo.unit.c_str());
                 if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(listItem->identifyer))
                 {
                     listItem->displayValue = HardwareMonitorHelper::GetGpuMemoryValueText(listItem->identifyer, unit, itemInfo.decimal_places, itemInfo.show_unit);
@@ -102,7 +102,7 @@ namespace HardwareMonitor
                 if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(listItem->identifyer))
                 {
                     //显卡显存项目
-                    String^ unit = item.unit.empty() ? gcnew String(L"GB") : gcnew String(item.unit.c_str());
+                    String^ unit = item.unit.empty() ? gcnew String(L"G") : gcnew String(item.unit.c_str());
                     listItem->sensor = nullptr;
                     listItem->displayValue = HardwareMonitorHelper::GetGpuMemoryValueText(listItem->identifyer, unit, item.decimal_places, item.show_unit);
                     String^ hardware_identifier = HardwareMonitorHelper::GetGpuMemoryHardwareIdentifier(listItem->identifyer);
@@ -196,8 +196,10 @@ namespace HardwareMonitor
             unitCombo->Items->Clear();
             if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(item_info.identifyer))
             {
+                //显存单位：G为紧凑单位（与数字之间无空格），GB单位前带空格，%为整数百分比
+                unitCombo->Items->Add("G");
                 unitCombo->Items->Add("GB");
-                unitCombo->Items->Add("MB");
+                unitCombo->Items->Add("%");
             }
             else
             {

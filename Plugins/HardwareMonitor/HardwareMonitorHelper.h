@@ -63,8 +63,19 @@ namespace HardwareMonitor
         //获取显卡的已占用显存和总显存，单位为GB
         static bool GetGpuMemoryValues(System::String^ identifier, float% used_gb, float% total_gb);
 
-        //获取显存项目的数值文本，unit可以为GB或MB
+        //获取显存项目的数值文本（完整格式“已占用/总量”），unit可以为G、GB或%。
+        //unit为%时输出整数百分比（如“94 %”），与CPU/内存等百分比项目一致
         static System::String^ GetGpuMemoryValueText(System::String^ identifier, System::String^ unit, int decimal_place = 1, bool show_unit = true, bool seperate_with_space = true);
+
+        //获取显存项目的短格式数值文本（任务栏窗口固定显示短格式），unit可以为G、GB或%：
+        //G/GB输出已占用显存（如“45.1G”“45.1 GB”），%输出整数百分比（如“98 %”），与CPU/内存等百分比项目一致
+        static System::String^ GetGpuMemoryShortValueText(System::String^ identifier, System::String^ unit, int decimal_place = 1, bool show_unit = true, bool seperate_with_space = true);
+
+        //获取显存项目的单位文本（含与数字之间的空格约定）：
+        //G为紧凑单位，与数字之间不加空格，如“45.1G”；
+        //选GB说明任务栏窗口宽度宽裕，单位前加空格排版更好，如“45.1 GB”；
+        //%遵循“数值和单位使用空格分隔”设置，与CPU/内存等百分比项目一致，如“94 %”
+        static System::String^ GetGpuMemoryUnitText(System::String^ unit, bool show_unit, bool seperate_with_space);
 
         //获取显存项目的显示名称，格式为“显卡名称/显存已占用/总显存”
         static System::String^ GetGpuMemoryDisplayName(System::String^ identifier);

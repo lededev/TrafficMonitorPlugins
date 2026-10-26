@@ -46,21 +46,48 @@ namespace HardwareMonitor
         if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
         {
             const ItemInfo& item_info{ CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(identifier) };
+            String^ unit = item_info.unit.empty() ? gcnew String(L"G") : gcnew String(item_info.unit.c_str());
+            bool use_percent = unit->Equals(gcnew String(L"%"), StringComparison::OrdinalIgnoreCase);
+            //显存单位文本（G不带空格、GB前带空格、%遵循“数值和单位使用空格分隔”设置）
+            std::wstring unit_text = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryUnitText(unit, item_info.show_unit, CHardwareMonitor::GetInstance()->m_tm_settings.sperate_with_space()));
             sample_text.clear();
+
+            //任务栏窗口固定显示短格式，因此示例文本也用短格式文本，保证计算出的宽度不会被完整格式撑开
+            if (CHardwareMonitor::GetInstance()->m_tm_settings.is_taskbar)
+            {
+                sample_text = GetItemValueText();
+                if (sample_text.empty())
+                {
+                    //数值尚未就绪时，按单位估算示例文本
+                    if (use_percent)
+                        sample_text = L"100" + unit_text;
+                    else
+                    {
+                        sample_text = L"0";
+                        if (item_info.decimal_places > 0)
+                        {
+                            sample_text += L'.';
+                            sample_text += std::wstring(item_info.decimal_places, L'0');
+                        }
+                        sample_text += unit_text;
+                    }
+                }
+                return sample_text.c_str();
+            }
+
+            //单位为%时，完整格式也是百分比文本，示例文本按100%估算宽度
+            if (use_percent)
+            {
+                sample_text = L"100" + unit_text;
+                return sample_text.c_str();
+            }
+
             if (!item_info.specify_value_width)
             {
                 //不指定数值宽度时，使用当前的实际数值作为示例文本，使显示区域刚好足够宽
                 sample_text = GetItemValueText();
                 if (sample_text.empty())
-                {
-                    sample_text = L"0/0";
-                    if (item_info.show_unit)
-                    {
-                        if (CHardwareMonitor::GetInstance()->m_tm_settings.sperate_with_space())
-                            sample_text += L' ';
-                        sample_text += item_info.unit.empty() ? L"GB" : item_info.unit;
-                    }
-                }
+                    sample_text = L"0/0" + unit_text;
                 return sample_text.c_str();
             }
             //指定数值宽度时，根据实际的总显存估算示例数值。
@@ -69,7 +96,6 @@ namespace HardwareMonitor
             float total_gb{};
             if (HardwareMonitorHelper::GetGpuMemoryValues(gcnew String(identifier.c_str()), used_gb, total_gb))
             {
-                String^ unit = item_info.unit.empty() ? gcnew String(L"GB") : gcnew String(item_info.unit.c_str());
                 bool use_mb = unit->Equals(gcnew String(L"MB"), StringComparison::OrdinalIgnoreCase);
                 float total = use_mb ? total_gb * 1024.0f : total_gb;
                 String^ used_format = String::Format("F{0}", item_info.decimal_places);
@@ -90,12 +116,7 @@ namespace HardwareMonitor
                 sample_text += L'/';
                 sample_text += std::wstring(item_info.value_width, L'0');
             }
-            if (item_info.show_unit)
-            {
-                if (CHardwareMonitor::GetInstance()->m_tm_settings.sperate_with_space())
-                    sample_text += L' ';
-                sample_text += item_info.unit.empty() ? L"GB" : item_info.unit;
-            }
+            sample_text += unit_text;
             return sample_text.c_str();
         }
 
@@ -165,11 +186,14 @@ namespace HardwareMonitor
         if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
         {
             const ItemInfo& item_info{ CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(identifier) };
-            String^ unit = item_info.unit.empty() ? gcnew String(L"GB") : gcnew String(item_info.unit.c_str());
+            String^ unit = item_info.unit.empty() ? gcnew String(L"G") : gcnew String(item_info.unit.c_str());
             String^ item_identifier = gcnew String(identifier.c_str());
             const auto& cfg{ CHardwareMonitor::GetInstance()->m_tm_settings };
             item_value_main_wnd = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryValueText(item_identifier, unit, item_info.decimal_places, item_info.show_unit, cfg.main_wnd_sperate_with_space));
-            item_value_taskbar = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryValueText(item_identifier, unit, item_info.decimal_places, item_info.show_unit, cfg.taskbar_sperate_with_space));
+            //任务栏窗口宽度有限（左右停靠时尤其如此），完整的“已用/总量”文本可能被裁切，
+            //因此任务栏固定显示短格式：单位G/GB显示已占用数值（如“45.1G”），单位%显示百分比（如“94 %”），
+            //完整值仍在鼠标提示中显示
+            item_value_taskbar = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryShortValueText(item_identifier, unit, item_info.decimal_places, item_info.show_unit, cfg.sperate_with_space()));
             sensor_type = static_cast<int>(SensorType::Data);
             return;
         }

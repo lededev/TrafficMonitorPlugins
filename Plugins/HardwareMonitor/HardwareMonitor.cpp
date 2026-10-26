@@ -126,7 +126,8 @@ namespace HardwareMonitor
 
         ItemInfo item_info;
         item_info.identifyer = identifier;
-        item_info.unit = L"GB";
+        //显存项目默认使用G单位：任务栏窗口显示“45.1G”这样的短格式，宽度最省
+        item_info.unit = L"G";
         item_info.decimal_places = 1;
         //不指定数值宽度，示例文本直接使用当前数值，使显示区域保持紧凑
         item_info.specify_value_width = false;

@@ -451,12 +451,21 @@ namespace HardwareMonitor
     String^ HardwareMonitorHelper::GetGpuMemoryValueText(String^ identifier, String^ unit, int decimal_place, bool show_unit, bool seperate_with_space)
     {
         if (String::IsNullOrEmpty(unit))
-            unit = "GB";
+            unit = "G";
 
         float used_gb;
         float total_gb;
         if (!GetGpuMemoryValues(identifier, used_gb, total_gb))
             return gcnew String(L"--");
+
+        //百分比单位：与CPU/内存等百分比项目保持一致，输出整数百分比，如“94 %”
+        if (unit->Equals(gcnew String(L"%"), StringComparison::OrdinalIgnoreCase))
+        {
+            int percent = (total_gb > 0) ? static_cast<int>(used_gb / total_gb * 100.0f + 0.5f) : 0;
+            String^ value_text = gcnew String(std::to_wstring(percent).c_str());
+            value_text += GetGpuMemoryUnitText(unit, show_unit, seperate_with_space);
+            return value_text;
+        }
 
         bool use_mb = unit->Equals(gcnew String(L"MB"), StringComparison::OrdinalIgnoreCase);
         float used_value = use_mb ? used_gb * 1024.0f : used_gb;
@@ -465,12 +474,50 @@ namespace HardwareMonitor
         String^ format_string = String::Format("F{0}", decimal_place);
         //总显存显示为整数（市售显卡的显存容量均为整GB）
         String^ value_text = used_value.ToString(format_string) + "/" + total_value.ToString("F0");
-        if (show_unit)
+        value_text += GetGpuMemoryUnitText(unit, show_unit, seperate_with_space);
+        return value_text;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryUnitText(String^ unit, bool show_unit, bool seperate_with_space)
+    {
+        if (!show_unit)
+            return gcnew String(L"");
+        //G为紧凑单位：与数字之间不加空格
+        if (unit->Equals(gcnew String(L"G"), StringComparison::OrdinalIgnoreCase))
+            return gcnew String(L"G");
+        //%遵循“数值和单位使用空格分隔”设置，与CPU/内存等百分比项目一致
+        if (unit->Equals(gcnew String(L"%"), StringComparison::OrdinalIgnoreCase))
+            return seperate_with_space ? gcnew String(L" %") : gcnew String(L"%");
+        //选GB说明任务栏窗口宽度宽裕，单位前加空格排版更好
+        return gcnew String(L" ") + unit;
+    }
+
+    String^ HardwareMonitorHelper::GetGpuMemoryShortValueText(String^ identifier, String^ unit, int decimal_place, bool show_unit, bool seperate_with_space)
+    {
+        if (String::IsNullOrEmpty(unit))
+            unit = "G";
+
+        float used_gb;
+        float total_gb;
+        if (!GetGpuMemoryValues(identifier, used_gb, total_gb))
+            return gcnew String(L"--");
+
+        //百分比单位，与CPU/内存等百分比项目保持一致：整数百分比（不加小数点），
+        //是否带空格遵循“数值和单位使用空格分隔”设置，如“98 %”
+        if (unit->Equals(gcnew String(L"%"), StringComparison::OrdinalIgnoreCase))
         {
-            if (seperate_with_space)
-                value_text += " ";
-            value_text += unit;
+            int percent = (total_gb > 0) ? static_cast<int>(used_gb / total_gb * 100.0f + 0.5f) : 0;
+            String^ value_text = gcnew String(std::to_wstring(percent).c_str());
+            value_text += GetGpuMemoryUnitText(unit, show_unit, seperate_with_space);
+            return value_text;
         }
+
+        //已占用显存格式，单位文本的空格约定见GetGpuMemoryUnitText（如“45.1G”“45.1 GB”）
+        bool use_mb = unit->Equals(gcnew String(L"MB"), StringComparison::OrdinalIgnoreCase);
+        float used_value = use_mb ? used_gb * 1024.0f : used_gb;
+        String^ format_string = String::Format("F{0}", decimal_place);
+        String^ value_text = used_value.ToString(format_string);
+        value_text += GetGpuMemoryUnitText(unit, show_unit, seperate_with_space);
         return value_text;
     }
 

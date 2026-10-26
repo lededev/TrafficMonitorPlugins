@@ -403,7 +403,7 @@ namespace HardwareMonitor
                     tooltip_info += L"\r\n";
                 tooltip_info += item.GetItemName();
                 tooltip_info += L": ";
-                tooltip_info += item.GetItemValueText();
+                tooltip_info += item.GetTooltipValueText();
             }
             return tooltip_info.c_str();
         }

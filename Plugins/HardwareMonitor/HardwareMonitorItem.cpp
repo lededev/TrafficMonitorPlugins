@@ -38,6 +38,15 @@ namespace HardwareMonitor
             return item_value_main_wnd.c_str();
     }
 
+    const wchar_t* CHardwareMonitorItem::GetTooltipValueText() const
+    {
+        //显存项目固定显示完整格式（已占用/总量）；
+        //其他项目沿用GetItemValueText，按当前窗口返回对应数值
+        if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
+            return item_value_main_wnd.c_str();
+        return GetItemValueText();
+    }
+
     const wchar_t* CHardwareMonitorItem::GetItemValueSampleText() const
     {
         static std::wstring sample_text;

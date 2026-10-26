@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "HardwareMonitorItem.h"
 #include "HardwareMonitor.h"
 #include "HardwareMonitorHelper.h"
@@ -103,7 +103,7 @@ namespace HardwareMonitor
             //已占用显存不会超过总显存，这样可以保证显示区域不会被过宽的示例文本撑开
             float used_gb{};
             float total_gb{};
-            if (HardwareMonitorHelper::GetGpuMemoryValues(gcnew String(identifier.c_str()), used_gb, total_gb))
+            if (HardwareMonitorHelper::GetGpuMemoryValues(identifier, used_gb, total_gb))
             {
                 bool use_mb = unit->Equals(gcnew String(L"MB"), StringComparison::OrdinalIgnoreCase);
                 float total = use_mb ? total_gb * 1024.0f : total_gb;
@@ -177,7 +177,7 @@ namespace HardwareMonitor
         {
             float used_gb;
             float total_gb;
-            if (HardwareMonitorHelper::GetGpuMemoryValues(gcnew String(identifier.c_str()), used_gb, total_gb) && total_gb > 0)
+            if (HardwareMonitorHelper::GetGpuMemoryValues(identifier, used_gb, total_gb) && total_gb > 0)
                 return used_gb / total_gb;
             return 0.0f;
         }
@@ -195,14 +195,28 @@ namespace HardwareMonitor
         if (HardwareMonitorHelper::IsGpuMemoryItemIdentifier(identifier))
         {
             const ItemInfo& item_info{ CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(identifier) };
-            String^ unit = item_info.unit.empty() ? gcnew String(L"G") : gcnew String(item_info.unit.c_str());
-            String^ item_identifier = gcnew String(identifier.c_str());
             const auto& cfg{ CHardwareMonitor::GetInstance()->m_tm_settings };
-            item_value_main_wnd = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryValueText(item_identifier, unit, item_info.decimal_places, item_info.show_unit, cfg.main_wnd_sperate_with_space));
-            //任务栏窗口宽度有限（左右停靠时尤其如此），完整的“已用/总量”文本可能被裁切，
-            //因此任务栏固定显示短格式：单位G/GB显示已占用数值（如“45.1G”），单位%显示百分比（如“94 %”），
-            //完整值仍在鼠标提示中显示
-            item_value_taskbar = Common::StringToStdWstring(HardwareMonitorHelper::GetGpuMemoryShortValueText(item_identifier, unit, item_info.decimal_places, item_info.show_unit, cfg.sperate_with_space()));
+            //单位取自ItemInfo（std::wstring），无需转换为托管字符串
+            static const std::wstring default_unit = L"G";
+            const std::wstring& unit = item_info.unit.empty() ? default_unit : item_info.unit;
+            //底层数据只获取一次（传感器引用走缓存），同一份数值分别生成
+            //主窗口（完整格式）和任务栏（短格式）两种文本，
+            //避免重复的硬件查找、传感器匹配和数值获取
+            float used_gb{};
+            float total_gb{};
+            if (HardwareMonitorHelper::GetGpuMemoryValues(identifier, used_gb, total_gb))
+            {
+                item_value_main_wnd = HardwareMonitorHelper::FormatGpuMemoryFullValueText(used_gb, total_gb, unit, item_info.decimal_places, item_info.show_unit, cfg.main_wnd_sperate_with_space);
+                //任务栏窗口宽度有限（左右停靠时尤其如此），完整的“已用/总量”文本可能被裁切，
+                //因此任务栏固定显示短格式：单位G/GB显示已占用数值（如“45.1G”），单位%显示百分比（如“94 %”），
+                //完整值仍在鼠标提示中显示
+                item_value_taskbar = HardwareMonitorHelper::FormatGpuMemoryShortValueText(used_gb, total_gb, unit, item_info.decimal_places, item_info.show_unit, cfg.sperate_with_space());
+            }
+            else
+            {
+                item_value_main_wnd = L"--";
+                item_value_taskbar = L"--";
+            }
             sensor_type = static_cast<int>(SensorType::Data);
             return;
         }

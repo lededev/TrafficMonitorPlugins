@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <string>
 
 namespace HardwareMonitor
@@ -53,6 +53,7 @@ namespace HardwareMonitor
 
         //从显存项目的标识符中获取显卡硬件的标识符
         static System::String^ GetGpuMemoryHardwareIdentifier(System::String^ identifier);
+        static std::wstring GetGpuMemoryHardwareIdentifier(const std::wstring& identifier);
 
         //根据硬件标识符查找硬件
         static LibreHardwareMonitor::Hardware::IHardware^ FindHardwareByIdentifier(System::String^ identifier);
@@ -60,7 +61,11 @@ namespace HardwareMonitor
         //判断一个显卡是否有可用的显存传感器
         static bool HasGpuMemorySensors(LibreHardwareMonitor::Hardware::IHardware^ hardware);
 
-        //获取显卡的已占用显存和总显存，单位为GB
+        //获取显卡的已占用显存和总显存，单位为GB。
+        //解析结果（硬件和传感器引用）会按identifier缓存：
+        //首次调用执行硬件树遍历和传感器名称匹配，之后直接从缓存读取传感器数值，
+        //查找失败时不写缓存，下次调用自动重试
+        static bool GetGpuMemoryValues(const std::wstring& identifier, float% used_gb, float% total_gb);
         static bool GetGpuMemoryValues(System::String^ identifier, float% used_gb, float% total_gb);
 
         //获取显存项目的数值文本（完整格式“已占用/总量”），unit可以为G、GB或%。
@@ -70,6 +75,17 @@ namespace HardwareMonitor
         //获取显存项目的短格式数值文本（任务栏窗口固定显示短格式），unit可以为G、GB或%：
         //G/GB输出已占用显存（如“45.1G”“45.1 GB”），%输出整数百分比（如“98 %”），与CPU/内存等百分比项目一致
         static System::String^ GetGpuMemoryShortValueText(System::String^ identifier, System::String^ unit, int decimal_place = 1, bool show_unit = true, bool seperate_with_space = true);
+
+        //基于已取到的数值生成完整格式文本“已占用/总量”（或整数百分比），不执行任何硬件查找。
+        //与GetGpuMemoryValueText的单位和空格约定一致，用于“单次取数、分别格式化”的热路径
+        static std::wstring FormatGpuMemoryFullValueText(float used_gb, float total_gb, const std::wstring& unit, int decimal_place = 1, bool show_unit = true, bool seperate_with_space = true);
+
+        //基于已取到的数值生成短格式文本（已占用显存或整数百分比），不执行任何硬件查找。
+        //与GetGpuMemoryShortValueText的单位和空格约定一致
+        static std::wstring FormatGpuMemoryShortValueText(float used_gb, float total_gb, const std::wstring& unit, int decimal_place = 1, bool show_unit = true, bool seperate_with_space = true);
+
+        //清空显存传感器引用缓存（硬件或传感器可能变化时调用，如监控硬件设置更改后）
+        static void ClearGpuMemoryCache();
 
         //获取显存项目的单位文本（含与数字之间的空格约定）：
         //G为紧凑单位，与数字之间不加空格，如“45.1G”；

@@ -1,4 +1,4 @@
-﻿// 这是主 DLL 文件。
+// 这是主 DLL 文件。
 
 #include "stdafx.h"
 
@@ -520,6 +520,8 @@ namespace HardwareMonitor
     void MonitorGlobal::UnInit()
     {
         computer->Close();
+        //硬件关闭后缓存的传感器引用失效，清空显存传感器缓存
+        HardwareMonitorHelper::ClearGpuMemoryCache();
     }
 
     String^ MonitorGlobal::GetString(String^ name)

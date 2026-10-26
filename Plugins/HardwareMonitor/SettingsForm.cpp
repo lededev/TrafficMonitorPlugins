@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "SettingsForm.h"
 #include "HardwareMonitor.h"
 #include "HardwareMonitorHelper.h"
@@ -263,6 +263,8 @@ namespace HardwareMonitor
 
         //更改了监控的硬件设置后，传感器可能会发生变化，因此这里清空传感器缓存
         MonitorGlobal::Instance()->sensorMap->Clear();
+        //同步清空显存传感器引用缓存，使下次刷新重新解析
+        HardwareMonitorHelper::ClearGpuMemoryCache();
     }
 
     void SettingsForm::ListBox_DrawItem(Object^ sender, DrawItemEventArgs^ e)

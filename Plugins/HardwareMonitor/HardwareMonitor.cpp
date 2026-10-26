@@ -2,6 +2,7 @@
 
 #include "stdafx.h"
 
+#include <atomic>
 #include "HardwareMonitor.h"
 #include <vector>
 #include "HardwareMonitorHelper.h"
@@ -11,6 +12,59 @@
 
 namespace HardwareMonitor
 {
+    //////////////////////////////////////////////////////////////////
+    // 显示器布局变化监听（纯.NET实现，不依赖Win32 API）
+    //
+    // 显示器连接/断开（如只保留核显显示器、断开独显显示器）后，
+    // LibreHardwareMonitorLib内部会重新枚举GPU硬件对象，
+    // 导致显存传感器缓存中引用的旧硬件/旧传感器不再被更新，
+    // 显示值冻结在变化前的数值上。
+    //
+    // 订阅Microsoft.Win32.SystemEvents.DisplaySettingsChanged事件
+    // （该事件由框架内部监视窗口接收系统WM_DISPLAYCHANGE广播后触发，
+    // 显示器分辨率、布局或连接状态变化时产生；框架自带监听窗口和
+    // 消息循环，与订阅线程无关）：
+    // 布局变化后系统不会立刻就绪（本地LLM引擎重新分配显存、
+    // 硬件重新枚举完成都有延迟），事件回调记录变化时刻并进入
+    // 10秒“无缓存窗口”：DataRequired()在窗口内每次刷新前都清空
+    // 显存传感器缓存并重新解析硬件和传感器引用，保证窗口结束时
+    // 缓存被稳定对象回填，之后恢复正常缓存热路径。
+    // 平时热路径不做任何额外操作，只有布局变化后的10秒窗口内
+    // 每次刷新多一次硬件解析。
+    //////////////////////////////////////////////////////////////////
+    namespace
+    {
+        //布局变化后无缓存窗口的时长（毫秒）
+        const int DISPLAY_CHANGE_CACHE_WINDOW_MS = 10 * 1000;
+
+        //最近一次布局变化的单调时间（Environment.TickCount，毫秒），
+        //0表示从未变化。事件回调与DataRequired可能不在同一线程，
+        //用原子变量。
+        std::atomic<int> g_display_change_tick{ 0 };
+
+        //记录布局变化时刻，开始无缓存窗口
+        void MarkDisplayChanged()
+        {
+            g_display_change_tick.store((int)System::Environment::TickCount);
+        }
+
+        //是否处于布局变化后的无缓存窗口内
+        //（无符号减法，TickCount自然回绕不影响结果）
+        bool InDisplayChangeCacheWindow()
+        {
+            int last = g_display_change_tick.load();
+            if (last == 0)
+                return false;
+            int now = (int)System::Environment::TickCount;
+            return (unsigned int)(now - last) < DISPLAY_CHANGE_CACHE_WINDOW_MS;
+        }
+    }
+
+    void MonitorGlobal::OnDisplaySettingsChanged(Object^ sender, EventArgs^ e)
+    {
+        MarkDisplayChanged();
+    }
+
     CHardwareMonitor* CHardwareMonitor::m_pIns = nullptr;
 
 
@@ -346,6 +400,12 @@ namespace HardwareMonitor
     {
         try
         {
+            //显示器布局变化（显示器连接/断开等）后系统未立刻就绪，
+            //10秒无缓存窗口内：每次刷新前清空缓存并重新解析硬件和
+            //传感器引用，保证窗口结束时缓存被稳定对象回填，
+            //窗口结束后自动恢复正常缓存热路径
+            if (InDisplayChangeCacheWindow())
+                HardwareMonitorHelper::ClearGpuMemoryCache();
             //重新获取数据
             MonitorGlobal::Instance()->computer->Accept(MonitorGlobal::Instance()->updateVisitor);
             //更新“硬件信息”树节点
@@ -514,11 +574,21 @@ namespace HardwareMonitor
         computer = gcnew Computer();
         computer->Open();
 
+        //订阅显示器设置变化事件（纯.NET，事件由系统WM_DISPLAYCHANGE广播驱动），
+        //布局变化后进入10秒显存缓存无缓存窗口
+        display_settings_changed_handler = gcnew EventHandler(this, &MonitorGlobal::OnDisplaySettingsChanged);
+        Microsoft::Win32::SystemEvents::DisplaySettingsChanged += display_settings_changed_handler;
+
         resourceManager = gcnew Resources::ResourceManager("HardwareMonitor.resource", Reflection::Assembly::GetExecutingAssembly());
     }
 
     void MonitorGlobal::UnInit()
     {
+        if (display_settings_changed_handler != nullptr)
+        {
+            Microsoft::Win32::SystemEvents::DisplaySettingsChanged -= display_settings_changed_handler;
+            display_settings_changed_handler = nullptr;
+        }
         computer->Close();
         //硬件关闭后缓存的传感器引用失效，清空显存传感器缓存
         HardwareMonitorHelper::ClearGpuMemoryCache();

@@ -104,6 +104,11 @@ namespace HardwareMonitor
         void Init();
         void UnInit();
 
+        //显示器设置变化事件回调（Microsoft.Win32.SystemEvents.DisplaySettingsChanged），
+        //显示器分辨率、布局或连接状态变化时由框架触发，
+        //记录变化时刻并进入10秒显存缓存无缓存窗口
+        void OnDisplaySettingsChanged(Object^ sender, EventArgs^ e);
+
         String^ GetString(String^ name);
         std::wstring GetStdWString(String^ name);
         Icon^ GetAppIcon();
@@ -129,6 +134,9 @@ namespace HardwareMonitor
         Resources::ResourceManager^ resourceManager{};
         //保存所有图标
         Dictionary<String^, Icon^>^ iconsMap{};
+        //显示器设置变化事件（Microsoft.Win32.SystemEvents.DisplaySettingsChanged）的
+        //订阅句柄，用于UnInit时退订
+        EventHandler^ display_settings_changed_handler{};
 
     private:
         static MonitorGlobal^ m_instance{};
